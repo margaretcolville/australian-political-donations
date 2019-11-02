@@ -1,0 +1,507 @@
+---
+title: "Australian Political Party Financial Disclosures 2017/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(ggplot2)
+library(directlabels)
+```
+
+```{r parameters, include=FALSE}
+lib_colour <- "#1B4D97"
+lab_colour <- "#DA373E"
+nat_colour <- "#FCD403"
+grn_colour <- "#00973B"
+onenat_colour <- "#EC6A23"
+focus_colour <- "darkorchid"
+faded_colour <- "grey75"
+secondary_colour <- "darkorchid4"
+colour_set <- c("Liberals" = lib_colour, 
+                "Labor" = lab_colour, 
+                "Nationals" = nat_colour,
+                "Greens" = grn_colour,
+                "One Nation" = onenat_colour,
+                "Focus" = focus_colour,
+                "Secondary" = secondary_colour,
+                "Faded" = faded_colour)
+
+```
+
+```{r dataextract, include=FALSE}
+totals_in_merged <- read_csv("totals_in.csv")
+totals_out_merged <- read_csv("totals_out.csv")
+totals_combined <- 
+  bind_rows(
+    cbind.data.frame(Type = "In",totals_in_merged, stringsAsFactors = FALSE),
+    cbind.data.frame(Type = "Out", totals_out_merged, stringsAsFactors = FALSE)
+    )
+
+donations_merged <- read_csv("donations.csv")
+debts_merged <- read_csv("debts.csv")
+```
+
+Australian political parties are required to publicly release information on monies received, both donations and "other receipts" (things like investment returns etc).  As well as an overall total money in and total money out, any amounts received over a set threshold (\$13500 in 2017/2018) need to be individually identified.  The parties are also required to declare any debts they hold that are over the same threshold.  The returns containing this information is available from the Australian Electoral Commission's [Periodic Disclosures site](https://periodicdisclosures.aec.gov.au/) in PDF form.  
+
+This analysis extracted the data from the 2017/2018 returns for several major parties' federal branches to compare which groups are attempting to create potential influence.  The parties analysed were:
+
+* The Liberal party
+* The National party
+* The Labor party
+* The Greens
+* One Nation
+
+# Total monies received and paid
+The parties's return includes a requirement to report on a single total value of all monies in, and all monies out.  The comparison of these values is shown below.
+
+```{r totals_in_and_out_vertical, echo=FALSE, eval=FALSE}
+totals_combined %>%
+  mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"), "Coalition", Party)) %>%
+  left_join(
+    totals_combined %>%
+      mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"), "Coalition", Party)) %>%
+      group_by(Group) %>%
+      summarise(GroupTotal = sum(Total)) %>%
+      ungroup(),
+    by = "Group"
+  ) %>%
+  left_join(
+    totals_combined %>%
+      group_by(Party) %>%
+      summarise(PartyTotal = sum(Total)) %>%
+      ungroup(),
+    by = "Party"
+  ) %>%
+  mutate(Group = fct_reorder(Group, -GroupTotal)) %>%
+  mutate(Party = fct_reorder(Party, PartyTotal)) %>%
+  mutate(Total_mil = Total / 10 ^ 6) %>%
+  ggplot(aes(x = Type, y = Total_mil, fill = Party, alpha = Type)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  scale_alpha_manual(values = c(1, 0.7)) +
+  scale_y_continuous(labels = scales::dollar) +
+  facet_grid(~Group) +
+  theme_classic() +
+  guides(fill = guide_legend(reverse = TRUE), alpha = FALSE) +
+  labs(title = paste0("One Nation is the only party with more expenditure than revenue,",
+                      "\n", "but nobody is stockpiling cash"),
+       x = "Total monies in and out 17/18",
+       y = "$ (millions)") +
+  NULL
+
+
+```
+
+```{r totals_in_and_out_decluttered, echo=FALSE}
+
+totals_combined %>%
+  left_join(
+    totals_combined %>%
+      group_by(Party) %>%
+      summarise(PartyTotal = sum(Total)) %>%
+      ungroup(),
+    by = "Party"
+  ) %>%
+  #mutate(colour_field = ifelse(Party == "One Nation", "One Nation", "Faded")) %>%
+  mutate(colour_field = ifelse(Party == "One Nation", "Focus", "Faded")) %>%
+  mutate(Party = fct_reorder(Party, -PartyTotal)) %>%
+  mutate(Total_mil = Total / 10 ^ 6) %>%
+  ggplot(aes(x = Type, y = Total, fill = colour_field)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  facet_grid(~Party) +
+  theme_classic() +
+  guides(fill = FALSE) +
+  labs(title = paste0("One Nation is the only party with more expenditure than revenue,",
+                      "\n", "but nobody is stockpiling cash"),
+       x = "Total monies in and out 17/18",
+       y = "") +
+  NULL
+
+
+```
+
+None of the parties are spending significantly more money than is coming in; nobody appears to be stockpiling cash, either.  However, the parties are also required to individually declare any monies received where the amount was more than a set threshold: \$13500 in 2017/2018.  How much of the money received by the parties needed to be individually declared?
+
+```{r totals_in_vs_13500s, echo=FALSE, eval=FALSE}
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num >= 13500) %>%
+  mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+  group_by(Group, Party) %>%
+  summarise(PartyIndividualDeclaration  = sum(Value_num)) %>%
+  ungroup() %>%
+  left_join(
+    totals_in_merged %>%
+      rename(PartyTotalDeclaration = Total),
+    by = "Party"
+  ) %>%
+  left_join(
+    donations_merged %>%
+      filter(Value_num >= 13500) %>%
+      mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+      group_by(Group) %>%
+      summarise(GroupIndividualDeclaration = sum(Value_num)) %>%
+      ungroup(),
+    by = "Group"
+  ) %>%
+  mutate(Group = fct_reorder(Group, -GroupIndividualDeclaration)) %>%
+  mutate(Party = fct_reorder(Party, PartyTotalDeclaration)) %>%
+  gather(Type, Value, PartyIndividualDeclaration:PartyTotalDeclaration) %>%
+  mutate(Type = ifelse(Type == "PartyIndividualDeclaration",">$13500", "Total")) %>%
+  mutate(Type = factor(Type, ordered = TRUE, levels = c("Total", ">$13500"))) %>%
+  mutate(Value_mil = Value / 10^6) %>%
+  ggplot(aes(x = Type, y = Value_mil, fill = Party, alpha = Type)) +
+  geom_col() +
+  facet_grid(~Group) +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_alpha_manual(values = c(1,0.7)) +
+  theme_classic() +
+  labs(title = paste0("Nearly all of the money received by the Liberals and One Nation was","\n",
+                      "large transactions, while it was a much lower proportion of","\n",
+                      "the other parties' revenue"),
+       x = "Monies received in total vs total of transactions over $13500",
+       y = "$ (millions)") +
+  guides(fill = guide_legend(reverse = TRUE), alpha = FALSE) +
+  NULL
+
+```
+
+```{r totals_in_vs_13500s_decluttered, echo=FALSE} 
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num >= 13500) %>%
+  group_by(Party) %>%
+  summarise(PartyIndividualDeclaration = sum(Value_num)) %>%
+  ungroup() %>%
+  left_join(
+    totals_in_merged %>%
+      rename(PartyTotalDeclaration = Total),
+    by = "Party"
+  ) %>%
+  #mutate(colour_field = ifelse(Party %in% c("Liberals", "One Nation"), Party, "Faded")) %>%
+  mutate(colour_field = ifelse(Party %in% c("Liberals", "One Nation"), "Focus", "Faded")) %>%
+  mutate(Party = fct_reorder(Party, -PartyTotalDeclaration)) %>%
+  gather(Type, Value, PartyIndividualDeclaration:PartyTotalDeclaration) %>%
+  mutate(Type = ifelse(Type == "PartyIndividualDeclaration",">$13500", "Total")) %>%
+  mutate(Type = factor(Type, ordered = TRUE, levels = c("Total", ">$13500"))) %>%
+  mutate(Value_mil = Value / 10^6) %>%
+  ggplot(aes(x = Type, y = Value, fill = colour_field)) +
+  geom_col() +
+  facet_grid(~Party) +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_alpha_manual(values = c(1,0.7)) +
+  theme_classic() +
+  labs(title = paste0("Nearly all of the money received by the Liberals and One Nation was","\n",
+                      "large transactions, while it was a much lower proportion of","\n",
+                      "the other parties' revenue"),
+       x = "Monies received in total vs total of transactions over $13500",
+       y = "") +
+  guides(fill = FALSE) +
+  NULL
+
+
+```
+
+This shows that Labor, the Nationals, and the Greens have a significant inflow of small amounts of money; on the other hand, the number of small transactions that the Liberals and One Nation see is a drop in the bucket compared to their other income.  However, this includes both donations and "other receipts".  What proportion of the large transaction money in is donations?
+
+```{r 13500s_split_by_type, echo=FALSE, eval=FALSE}
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num >= 13500) %>%
+  mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+  group_by(Group, Party, Type) %>%
+  summarise(PartyDeclaration  = sum(Value_num)) %>%
+  ungroup() %>%
+  left_join(
+    totals_in_merged %>%
+      rename(PartyTotalDeclaration = Total),
+    by = "Party"
+  ) %>% 
+  left_join(
+    donations_merged %>%
+      filter(Value_num >= 13500) %>%
+      mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+      group_by(Group) %>%
+      summarise(GroupDeclaration = sum(Value_num)) %>%
+      ungroup(),
+    by = "Group"
+  ) %>%
+  mutate(Group = fct_reorder(Group, -GroupDeclaration)) %>%
+  mutate(Party = fct_reorder(Party, PartyTotalDeclaration)) %>%
+  mutate(Type = ifelse(Type == "Other Receipt", "Other", "Donation")) %>%
+  mutate(Type = factor(Type, ordered = TRUE, levels = c("Donation", "Other"))) %>%
+  mutate(Value_mil = PartyDeclaration / 10^6) %>%
+  ggplot(aes(x = Type, y = Value_mil, fill = Party, alpha = Type)) +
+  geom_col() +
+  facet_grid(~Group) +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_alpha_manual(values = c(1,0.7)) +
+  theme_classic() +
+  labs(title = "Most large transaction income is for things other than donations",
+       x = "Monies received in transactions over $13500",
+       y = "$ (millions)") +
+  guides(fill = guide_legend(reverse = TRUE), alpha = FALSE) +
+  NULL
+
+
+```
+
+```{r 13500s_split_by_type_decluttered, echo=FALSE, eval=FALSE}
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num >= 13500) %>%
+  mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+  group_by(Group, Party, Type) %>%
+  summarise(PartyDeclaration  = sum(Value_num)) %>%
+  ungroup() %>%
+  left_join(
+    totals_in_merged %>%
+      rename(PartyTotalDeclaration = Total),
+    by = "Party"
+  ) %>% 
+  mutate(Party = fct_reorder(Party, -PartyTotalDeclaration)) %>%
+  mutate(Type = ifelse(Type == "Other Receipt", "Other", "Donation")) %>%
+  mutate(colour_field = ifelse(Type == "Other", "Focus", "Faded")) %>%
+  mutate(Type = factor(Type, ordered = TRUE, levels = c("Donation", "Other"))) %>%
+  mutate(Value_mil = PartyDeclaration / 10^6) %>%
+  ggplot(aes(x = Type, y = PartyDeclaration, fill = colour_field)) +
+  geom_col() +
+  facet_grid(~Party) +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  theme_classic() +
+  labs(title = "Most large transaction income is for things other than donations",
+       x = "Monies received in transactions over $13500",
+       y = "") +
+  guides(fill = FALSE) +
+  NULL
+
+```
+
+```{r 13500s_stacked_by_type_horizontal, echo=FALSE}
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num >= 13500) %>%
+  mutate(Group = ifelse(Party %in% c("Liberals", "Nationals"),"Coalition",Party)) %>%
+  group_by(Group, Party, Type) %>%
+  summarise(PartyDeclaration  = sum(Value_num)) %>%
+  ungroup() %>%
+  left_join(
+    totals_in_merged %>%
+      rename(PartyTotalDeclaration = Total),
+    by = "Party"
+  ) %>% 
+  mutate(Type = ifelse(Type == "Other Receipt", "Other", "Donation")) %>%
+  mutate(colour_field = case_when(Type == "Donation" & Party == "Liberals" ~ "Focus", 
+                                  Type == "Donation" ~ "Secondary",
+                                  TRUE ~ "Faded")) %>%
+  mutate(colour_field = factor(colour_field, ordered = TRUE, levels = c("Focus", "Secondary", "Faded"))) %>%
+  mutate(Party = fct_reorder(Party, PartyTotalDeclaration)) %>%
+  mutate(Type = factor(Type, ordered = TRUE, levels = c("Donation", "Other"))) %>%
+  mutate(Value_mil = PartyDeclaration / 10^6) %>%
+  ggplot(aes(x = Party, y = PartyDeclaration, fill = colour_field)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = paste0("Only a small amount of large transaction income is for donations,",
+                      "\n","though a larger proportion for the Liberals"),
+       x = "",
+       y = "Monies received in transactions over $13500") +
+  guides(fill = FALSE) +
+  NULL
+
+```
+
+Very little.  It looks like most of the money is "Other receipts" - particularly in the Greens and One Nation, neither of which reported any large donations whatsoever.  So, what were the largest donations?
+
+```{r donations_100k_table, echo=FALSE}
+
+donations_merged %>%
+  filter(Year == "17/18") %>%
+  filter(Value_num > 100000) %>%
+  filter(Type == "Donation") %>%
+  rename(ReceiptAmount = Value_num) %>%
+  arrange(-ReceiptAmount, Name) %>%
+  select(Party, Year, Name, Type, Value) %>%
+  knitr::kable()
+
+```
+
+The federal Liberal party received a \$200k donation from the NSW Liberal party, while ANZ is giving donations to both of the large parties.
+
+The final section of each party's return details any major monetary debts the party owes, and whether they are to a financial institution or not.  The National Party did not declare any debts; the totals of the other parties' debts is shown below.  
+
+```{r debts_total, echo=FALSE, eval=FALSE}
+
+debts_merged %>%
+  filter(Year == "17/18") %>%
+  group_by(Party) %>%
+  summarise(PartyDollars = sum(Value_num)) %>%
+  ungroup() %>%
+  mutate(Party = fct_reorder(Party, -PartyDollars)) %>%
+  mutate(Party_millions = PartyDollars / 10^6) %>%
+  ggplot(aes(x = Party, y = Party_millions, fill = Party)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::dollar) +
+  #theme(legend.position = "top") +
+  labs(title = "Labor and the Liberal party both have debts totalling more than $3 million each",
+       x = "Debts declared 17/18",
+       y = "$ (millions)") +
+  NULL
+
+```
+
+```{r debts_total_decluttered, echo=FALSE, eval=FALSE}
+
+debts_merged %>%
+  filter(Year == "17/18") %>%
+  group_by(Party) %>%
+  summarise(PartyDollars = sum(Value_num)) %>%
+  ungroup() %>%
+  mutate(Party = fct_reorder(Party, -PartyDollars)) %>%
+  mutate(Party_millions = PartyDollars / 10^6) %>%
+  mutate(colour_field = ifelse(Party %in% c("Labor", "Liberals"), "Focus", "Faded")) %>%
+  ggplot(aes(x = Party, y = PartyDollars, fill = colour_field)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  theme_classic() +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = paste0("Labor and the Liberal party both have debts totalling more than",
+                      "\n","$3 million each"),
+       x = "Debts declared 17/18",
+       y = "") +
+  guides(fill = FALSE) +
+  NULL
+
+
+```
+
+```{r debts_total_horizontal, echo=FALSE}
+
+debts_merged %>%
+  filter(Year == "17/18") %>%
+  group_by(Party) %>%
+  summarise(PartyDollars = sum(Value_num)) %>%
+  ungroup() %>%
+  mutate(Party = fct_reorder(Party, PartyDollars)) %>%
+  mutate(Party_millions = PartyDollars / 10^6) %>%
+  mutate(colour_field = ifelse(PartyDollars > 3 * 10 ^ 6 , "Focus", "Faded")) %>%
+  mutate(label = ifelse(PartyDollars > 3 * 10 ^ 6, paste0("$",round(Party_millions,1)," million"), "")) %>%
+  ggplot(aes(x = Party, y = PartyDollars, fill = colour_field)) +
+  geom_col() +
+  geom_text(aes(label = label), col = "white", size = 5, position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = colour_set) +
+  scale_y_continuous(labels = scales::dollar) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = paste0("Labor and the Liberal party both have debts totalling more than",
+                      "\n","$3 million each"),
+       x = "",
+       y = "Total debts declared 17/18") +
+  guides(fill = FALSE) +
+  NULL
+
+
+```
+
+Understandably, the major parties have much larger loans than the smaller ones.  The debts are marked by ones to financial institutions and to other groups.  Here's who the creditors are for the larger loans, and whether they were to a financial institution or not:
+
+```{r debts_by_creditor, echo=FALSE, eval=FALSE}
+
+debts_merged %>%
+  filter(Year == "17/18") %>%
+  mutate(PartyCreditor = paste0(Party, " - ", Name)) %>%
+  rename(PartyDollars = Value_num) %>%
+  left_join(
+    debts_merged %>%
+      filter(Year == "17/18") %>%
+      group_by(Party) %>%
+      summarise(TotalDebt = sum(Value_num)) %>%
+      ungroup(),
+    by = "Party"
+  ) %>%
+  mutate(Party = fct_reorder(Party, TotalDebt)) %>%
+  mutate(PartyCreditor = fct_reorder(PartyCreditor, PartyDollars)) %>%
+  filter(PartyDollars > 40000) %>%
+  mutate(Debt_millions = PartyDollars / 10^6) %>%
+  ggplot(aes(x = PartyCreditor, y = Debt_millions, fill = Party, alpha = Type)) +
+  geom_col() +
+  scale_fill_manual(values = colour_set) +
+  scale_alpha_manual(values = c(1, 0.7)) +
+  theme_classic() +
+  coord_flip() +
+  scale_y_continuous(labels = scales::dollar) +
+  #theme(legend.position = "top") +
+  facet_grid(Type~., scales = "free_y", space = "free_y") +
+  labs(title = paste0("The largest loans are from Westpac to Labor","\n",
+                      "and The Greenfields Foundation to the Liberals"),
+       x = "Debts > $40,000 declared 17/18",
+       y = "$ (millions)") +
+  guides(fill = guide_legend(reverse = TRUE), alpha = FALSE) +
+  NULL
+
+
+```
+
+```{r debts_by_creditor_decluttered, echo=FALSE}
+
+debts_merged %>%
+  filter(Year == "17/18") %>%
+  mutate(PartyCreditor = paste0(Party, " - ", Name)) %>%
+  rename(PartyDollars = Value_num) %>%
+  left_join(
+    debts_merged %>%
+      filter(Year == "17/18") %>%
+      group_by(Party) %>%
+      summarise(TotalDebt = sum(Value_num)) %>%
+      ungroup(),
+    by = "Party"
+  ) %>%
+  mutate(Party = fct_reorder(Party, TotalDebt)) %>%
+  mutate(PartyCreditor = fct_reorder(PartyCreditor, PartyDollars)) %>%
+  filter(PartyDollars > 40000) %>%
+  mutate(Debt_millions = PartyDollars / 10^6) %>%
+  mutate(colour_field = ifelse(PartyDollars > 10^6, "Focus", "Faded")) %>%
+  mutate(label = ifelse(PartyDollars > 10^6,paste0("$",round(PartyDollars/10^6,1)," million"),"")) %>%
+  ggplot(aes(x = PartyCreditor, y = PartyDollars, fill = colour_field)) +
+  geom_col() +
+  geom_text(aes(label = label), col = "white",position=position_stack(vjust=0.5)) +
+  scale_fill_manual(values = colour_set) +
+  theme_classic() +
+  coord_flip() +
+  scale_y_continuous(labels = scales::dollar) +
+  facet_grid(Type~., scales = "free_y", space = "free_y") +
+  labs(title = paste0("The largest loans are from Westpac to Labor","\n",
+                      "and The Greenfields Foundation to the Liberals"),
+       #subtitle = "Debts > $40,000 declared 17/18",
+       x = "",
+       y = "Dollar value of debt") +
+  guides(fill = FALSE) +
+  NULL
+
+
+```
+
+The most notable item is the Liberal party's \$3.2 million debt to *The Greenfields Foundation*.  Searching Hansard reveals [the group is a front to funnel money to the Liberal party while dodging political funding laws](https://parlinfo.aph.gov.au/parlInfo/search/display/display.w3p;db=CHAMBER;id=chamber/hansards/2000-06-22/0159;query=Id:%22chamber/hansards/2000-06-22/0000%22), which has been known since [the 1990s](https://web.archive.org/web/20030910071303/http://www.treasurer.gov.au/tsr/content/transcripts/1999/004.asp).
+
+
+<br>
